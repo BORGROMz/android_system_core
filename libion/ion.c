@@ -23,6 +23,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -117,7 +118,6 @@ int ion_map(int fd, ion_user_handle_t handle, size_t length, int prot,
 
 int ion_share(int fd, ion_user_handle_t handle, int *share_fd)
 {
-    int map_fd;
     int ret;
     struct ion_fd_data data = {
         .handle = handle,

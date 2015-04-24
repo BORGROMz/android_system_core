@@ -44,6 +44,7 @@ CommandListener::CommandListener(LogBuffer *buf, LogReader * /*reader*/,
     registerCmd(new GetStatisticsCmd(buf));
     registerCmd(new SetPruneListCmd(buf));
     registerCmd(new GetPruneListCmd(buf));
+    registerCmd(new ReinitCmd());
 }
 
 CommandListener::ShutdownCmd::ShutdownCmd(LogBuffer *buf, LogReader *reader,
@@ -68,7 +69,11 @@ CommandListener::ClearCmd::ClearCmd(LogBuffer *buf)
 { }
 
 static void setname() {
-    prctl(PR_SET_NAME, "logd.control");
+    static bool name_set;
+    if (!name_set) {
+        prctl(PR_SET_NAME, "logd.control");
+        name_set = true;
+    }
 }
 
 int CommandListener::ClearCmd::runCommand(SocketClient *cli,
@@ -290,6 +295,21 @@ int CommandListener::SetPruneListCmd::runCommand(SocketClient *cli,
         cli->sendMsg("Invalid");
         return 0;
     }
+
+    cli->sendMsg("success");
+
+    return 0;
+}
+
+CommandListener::ReinitCmd::ReinitCmd()
+        : LogCommand("reinit")
+{ }
+
+int CommandListener::ReinitCmd::runCommand(SocketClient *cli,
+                                         int /*argc*/, char ** /*argv*/) {
+    setname();
+
+    reinit_signal_handler(SIGHUP);
 
     cli->sendMsg("success");
 

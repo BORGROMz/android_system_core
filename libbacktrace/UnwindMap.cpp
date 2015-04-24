@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <pthread.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -113,18 +113,17 @@ bool UnwindMapLocal::Build() {
   return (map_created_ = (unw_map_local_create() == 0)) && GenerateMap();;
 }
 
-const backtrace_map_t* UnwindMapLocal::Find(uintptr_t addr) {
-  const backtrace_map_t* map = BacktraceMap::Find(addr);
-  if (!map) {
+void UnwindMapLocal::FillIn(uintptr_t addr, backtrace_map_t* map) {
+  BacktraceMap::FillIn(addr, map);
+  if (!IsValid(*map)) {
     // Check to see if the underlying map changed and regenerate the map
     // if it did.
     if (unw_map_local_cursor_valid(&map_cursor_) < 0) {
       if (GenerateMap()) {
-        map = BacktraceMap::Find(addr);
+        BacktraceMap::FillIn(addr, map);
       }
     }
   }
-  return map;
 }
 
 //-------------------------------------------------------------------------
@@ -143,7 +142,7 @@ BacktraceMap* BacktraceMap::Create(pid_t pid, bool uncached) {
   }
   if (!map->Build()) {
     delete map;
-    return NULL;
+    return nullptr;
   }
   return map;
 }

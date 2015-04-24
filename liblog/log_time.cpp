@@ -39,7 +39,7 @@ char *log_time::strptime(const char *s, const char *format) {
 #endif
 
     struct tm *ptm;
-#if (defined(HAVE_LOCALTIME_R))
+#if !defined(_WIN32)
     struct tm tmBuf;
     ptm = localtime_r(&now, &tmBuf);
 #else
@@ -78,7 +78,7 @@ char *log_time::strptime(const char *s, const char *format) {
                 ++ret;
             }
             now = tv_sec;
-#if (defined(HAVE_LOCALTIME_R))
+#if !defined(_WIN32)
             ptm = localtime_r(&now, &tmBuf);
 #else
             ptm = localtime(&now);
@@ -150,6 +150,17 @@ log_time log_time::operator-= (const timespec &T) {
     return *this;
 }
 
+log_time log_time::operator+= (const timespec &T) {
+    this->tv_nsec += (unsigned long int)T.tv_nsec;
+    if (this->tv_nsec >= NS_PER_SEC) {
+        this->tv_nsec -= NS_PER_SEC;
+        ++this->tv_sec;
+    }
+    this->tv_sec += T.tv_sec;
+
+    return *this;
+}
+
 log_time log_time::operator-= (const log_time &T) {
     // No concept of negative time, clamp to EPOCH
     if (*this <= T) {
@@ -163,6 +174,17 @@ log_time log_time::operator-= (const log_time &T) {
         this->tv_nsec -= T.tv_nsec;
     }
     this->tv_sec -= T.tv_sec;
+
+    return *this;
+}
+
+log_time log_time::operator+= (const log_time &T) {
+    this->tv_nsec += T.tv_nsec;
+    if (this->tv_nsec >= NS_PER_SEC) {
+        this->tv_nsec -= NS_PER_SEC;
+        ++this->tv_sec;
+    }
+    this->tv_sec += T.tv_sec;
 
     return *this;
 }

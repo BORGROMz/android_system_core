@@ -1,22 +1,38 @@
 /*
 ** Copyright (C) 2007, The Android Open Source Project
 **
-** Licensed under the Apache License, Version 2.0 (the "License"); 
-** you may not use this file except in compliance with the License. 
-** You may obtain a copy of the License at 
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
 **
-**     http://www.apache.org/licenses/LICENSE-2.0 
+**     http://www.apache.org/licenses/LICENSE-2.0
 **
-** Unless required by applicable law or agreed to in writing, software 
-** distributed under the License is distributed on an "AS IS" BASIS, 
-** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
-** See the License for the specific language governing permissions and 
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
 ** limitations under the License.
 */
 
-#include <cutils/threads.h>
+#include "cutils/threads.h"
 
-#ifdef HAVE_PTHREADS
+#if !defined(_WIN32)
+
+// For gettid.
+#if defined(__APPLE__)
+#include "AvailabilityMacros.h"  // For MAC_OS_X_VERSION_MAX_ALLOWED
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/syscall.h>
+#include <sys/time.h>
+#include <unistd.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
+#include <syscall.h>
+#include <unistd.h>
+#elif defined(_WIN32)
+#include <Windows.h>
+#endif
+
 void*  thread_store_get( thread_store_t*  store )
 {
     if (!store->has_tls)
@@ -24,8 +40,8 @@ void*  thread_store_get( thread_store_t*  store )
 
     return pthread_getspecific( store->tls );
 }
-    
-extern void   thread_store_set( thread_store_t*          store, 
+
+extern void   thread_store_set( thread_store_t*          store,
                                 void*                    value,
                                 thread_store_destruct_t  destroy)
 {
@@ -42,14 +58,30 @@ extern void   thread_store_set( thread_store_t*          store,
     pthread_setspecific( store->tls, value );
 }
 
+// No definition needed for Android because we'll just pick up bionic's copy.
+#ifndef __ANDROID__
+pid_t gettid() {
+#if defined(__APPLE__)
+  uint64_t owner;
+  int rc = pthread_threadid_np(NULL, &owner);
+  if (rc != 0) {
+    abort();
+  }
+  return owner;
+#elif defined(__linux__)
+  return syscall(__NR_gettid);
+#elif defined(_WIN32)
+  return (pid_t)GetCurrentThreadId();
 #endif
+}
+#endif  // __ANDROID__
 
-#ifdef HAVE_WIN32_THREADS
+#else /* !defined(_WIN32) */
 void*  thread_store_get( thread_store_t*  store )
 {
     if (!store->has_tls)
         return NULL;
-    
+
     return (void*) TlsGetValue( store->tls );
 }
 
@@ -65,7 +97,7 @@ void   thread_store_set( thread_store_t*          store,
     } else while (store->lock_init != -2) {
         Sleep(10); /* 10ms */
     }
-        
+
     EnterCriticalSection( &store->lock );
     if (!store->has_tls) {
         store->tls = TlsAlloc();
@@ -76,7 +108,7 @@ void   thread_store_set( thread_store_t*          store,
         store->has_tls = 1;
     }
     LeaveCriticalSection( &store->lock );
-    
+
     TlsSetValue( store->tls, value );
 }
-#endif
+#endif /* !defined(_WIN32) */

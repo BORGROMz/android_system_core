@@ -72,13 +72,15 @@ static int wait_for_property(const char *name, const char *desired_value, int ma
         maxnaps = 1;
     }
 
-    while (maxnaps-- > 0) {
-        usleep(NAP_TIME * 1000);
+    while (maxnaps-- >= 0) {
         if (property_get(name, value, NULL)) {
             if (desired_value == NULL || 
                     strcmp(value, desired_value) == 0) {
                 return 0;
             }
+        }
+        if (maxnaps >= 0) {
+            usleep(NAP_TIME * 1000);
         }
     }
     return -1; /* failure */
@@ -166,14 +168,6 @@ static int fill_ip_info(const char *interface,
     return 0;
 }
 
-static const char *ipaddr_to_string(in_addr_t addr)
-{
-    struct in_addr in_addr;
-
-    in_addr.s_addr = addr;
-    return inet_ntoa(in_addr);
-}
-
 /*
  * Start the dhcp client daemon, and wait for it to finish
  * configuring the interface.
@@ -242,7 +236,6 @@ int dhcp_do_request(const char *interface,
         return -1;
     }
     if (strcmp(prop_value, "ok") == 0) {
-        char dns_prop_name[PROPERTY_KEY_MAX];
         if (fill_ip_info(interface, ipaddr, gateway, prefixLength, dns,
                 server, lease, vendorInfo, domain, mtu) == -1) {
             return -1;

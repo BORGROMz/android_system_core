@@ -16,6 +16,7 @@
 
 #define LOG_TAG "DEBUG"
 
+#include <arpa/inet.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -33,6 +34,7 @@
 
 #include <private/android_filesystem_config.h>
 
+#include <base/stringprintf.h>
 #include <cutils/properties.h>
 #include <log/log.h>
 #include <log/logger.h>
@@ -45,9 +47,12 @@
 
 #include <UniquePtr.h>
 
+#include <string>
+
+#include "backtrace.h"
+#include "elf_utils.h"
 #include "machine.h"
 #include "tombstone.h"
-#include "backtrace.h"
 
 #define STACK_WORDS 16
 
@@ -233,48 +238,36 @@ static void dump_thread_info(log_t* log, pid_t pid, pid_t tid) {
 
 static void dump_stack_segment(
     Backtrace* backtrace, log_t* log, uintptr_t* sp, size_t words, int label) {
+  // Read the data all at once.
+  word_t stack_data[words];
+  size_t bytes_read = backtrace->Read(*sp, reinterpret_cast<uint8_t*>(&stack_data[0]), sizeof(word_t) * words);
+  words = bytes_read / sizeof(word_t);
+  std::string line;
   for (size_t i = 0; i < words; i++) {
-    word_t stack_content;
-    if (!backtrace->ReadWord(*sp, &stack_content)) {
-      break;
+    line = "    ";
+    if (i == 0 && label >= 0) {
+      // Print the label once.
+      line += android::base::StringPrintf("#%02d  ", label);
+    } else {
+      line += "     ";
     }
+    line += android::base::StringPrintf("%" PRIPTR "  %" PRIPTR, *sp, stack_data[i]);
 
-    const backtrace_map_t* map = backtrace->FindMap(stack_content);
-    const char* map_name;
-    if (!map) {
-      map_name = "";
-    } else {
-      map_name = map->name.c_str();
-    }
-    uintptr_t offset = 0;
-    std::string func_name(backtrace->GetFunctionName(stack_content, &offset));
-    if (!func_name.empty()) {
-      if (!i && label >= 0) {
+    backtrace_map_t map;
+    backtrace->FillInMap(stack_data[i], &map);
+    if (BacktraceMap::IsValid(map) && !map.name.empty()) {
+      line += "  " + map.name;
+      uintptr_t offset = 0;
+      std::string func_name(backtrace->GetFunctionName(stack_data[i], &offset));
+      if (!func_name.empty()) {
+        line += " (" + func_name;
         if (offset) {
-          _LOG(log, logtype::STACK, "    #%02d  %" PRIPTR "  %" PRIPTR "  %s (%s+%" PRIuPTR ")\n",
-               label, *sp, stack_content, map_name, func_name.c_str(), offset);
-        } else {
-          _LOG(log, logtype::STACK, "    #%02d  %" PRIPTR "  %" PRIPTR "  %s (%s)\n",
-               label, *sp, stack_content, map_name, func_name.c_str());
+          line += android::base::StringPrintf("+%" PRIuPTR, offset);
         }
-      } else {
-        if (offset) {
-          _LOG(log, logtype::STACK, "         %" PRIPTR "  %" PRIPTR "  %s (%s+%" PRIuPTR ")\n",
-               *sp, stack_content, map_name, func_name.c_str(), offset);
-        } else {
-          _LOG(log, logtype::STACK, "         %" PRIPTR "  %" PRIPTR "  %s (%s)\n",
-               *sp, stack_content, map_name, func_name.c_str());
-        }
-      }
-    } else {
-      if (!i && label >= 0) {
-        _LOG(log, logtype::STACK, "    #%02d  %" PRIPTR "  %" PRIPTR "  %s\n",
-             label, *sp, stack_content, map_name);
-      } else {
-        _LOG(log, logtype::STACK, "         %" PRIPTR "  %" PRIPTR "  %s\n",
-             *sp, stack_content, map_name);
+        line += ')';
       }
     }
+    _LOG(log, logtype::STACK, "%s\n", line.c_str());
 
     *sp += sizeof(word_t);
   }
@@ -325,6 +318,75 @@ static void dump_stack(Backtrace* backtrace, log_t* log) {
   }
 }
 
+static void dump_all_maps(Backtrace* backtrace, BacktraceMap* map, log_t* log, pid_t tid) {
+  bool print_fault_address_marker = false;
+  uintptr_t addr = 0;
+  siginfo_t si;
+  memset(&si, 0, sizeof(si));
+  if (ptrace(PTRACE_GETSIGINFO, tid, 0, &si)) {
+    _LOG(log, logtype::ERROR, "cannot get siginfo for %d: %s\n", tid, strerror(errno));
+  } else {
+    print_fault_address_marker = signal_has_si_addr(si.si_signo);
+    addr = reinterpret_cast<uintptr_t>(si.si_addr);
+  }
+
+  _LOG(log, logtype::MAPS, "\n");
+  if (!print_fault_address_marker) {
+    _LOG(log, logtype::MAPS, "memory map:\n");
+  } else {
+    _LOG(log, logtype::MAPS, "memory map: (fault address prefixed with --->)\n");
+    if (map->begin() != map->end() && addr < map->begin()->start) {
+      _LOG(log, logtype::MAPS, "--->Fault address falls at %" PRIPTR " before any mapped regions\n",
+           addr);
+      print_fault_address_marker = false;
+    }
+  }
+
+  std::string line;
+  for (BacktraceMap::const_iterator it = map->begin(); it != map->end(); ++it) {
+    line = "    ";
+    if (print_fault_address_marker) {
+      if (addr < it->start) {
+        _LOG(log, logtype::MAPS, "--->Fault address falls at %" PRIPTR " between mapped regions\n",
+             addr);
+        print_fault_address_marker = false;
+      } else if (addr >= it->start && addr < it->end) {
+        line = "--->";
+        print_fault_address_marker = false;
+      }
+    }
+    line += android::base::StringPrintf("%" PRIPTR "-%" PRIPTR " ", it->start, it->end - 1);
+    if (it->flags & PROT_READ) {
+      line += 'r';
+    } else {
+      line += '-';
+    }
+    if (it->flags & PROT_WRITE) {
+      line += 'w';
+    } else {
+      line += '-';
+    }
+    if (it->flags & PROT_EXEC) {
+      line += 'x';
+    } else {
+      line += '-';
+    }
+    line += android::base::StringPrintf("  %8" PRIxPTR, it->end - it->start);
+    if (it->name.length() > 0) {
+      line += "  " + it->name;
+      std::string build_id;
+      if ((it->flags & PROT_READ) && elf_get_build_id(backtrace, it->start, &build_id)) {
+        line += " (BuildId: " + build_id + ")";
+      }
+    }
+    _LOG(log, logtype::MAPS, "%s\n", line.c_str());
+  }
+  if (print_fault_address_marker) {
+    _LOG(log, logtype::MAPS, "--->Fault address falls at %" PRIPTR " after any mapped regions\n",
+        addr);
+  }
+}
+
 static void dump_backtrace_and_stack(Backtrace* backtrace, log_t* log) {
   if (backtrace->NumFrames()) {
     _LOG(log, logtype::BACKTRACE, "\nbacktrace:\n");
@@ -333,53 +395,6 @@ static void dump_backtrace_and_stack(Backtrace* backtrace, log_t* log) {
     _LOG(log, logtype::STACK, "\nstack:\n");
     dump_stack(backtrace, log);
   }
-}
-
-static void dump_map(log_t* log, const backtrace_map_t* map, bool fault_addr) {
-  _LOG(log, logtype::MAPS, "%s%" PRIPTR "-%" PRIPTR " %c%c%c  %7" PRIdPTR "  %s\n",
-         (fault_addr? "--->" : "    "), map->start, map->end - 1,
-         (map->flags & PROT_READ) ? 'r' : '-', (map->flags & PROT_WRITE) ? 'w' : '-',
-         (map->flags & PROT_EXEC) ? 'x' : '-',
-         (map->end - map->start), map->name.c_str());
-}
-
-static void dump_nearby_maps(BacktraceMap* map, log_t* log, pid_t tid) {
-  siginfo_t si;
-  memset(&si, 0, sizeof(si));
-  if (ptrace(PTRACE_GETSIGINFO, tid, 0, &si)) {
-    _LOG(log, logtype::MAPS, "cannot get siginfo for %d: %s\n", tid, strerror(errno));
-    return;
-  }
-
-  bool has_fault_address = signal_has_si_addr(si.si_signo);
-  uintptr_t addr = reinterpret_cast<uintptr_t>(si.si_addr);
-
-  _LOG(log, logtype::MAPS, "\nmemory map: %s\n", has_fault_address ? "(fault address prefixed with --->)" : "");
-
-  if (has_fault_address && (addr < map->begin()->start)) {
-    _LOG(log, logtype::MAPS, "--->Fault address falls at %" PRIPTR " before any mapped regions\n", addr);
-  }
-
-  BacktraceMap::const_iterator prev = map->begin();
-  for (BacktraceMap::const_iterator it = map->begin(); it != map->end(); ++it) {
-    if (addr >= (*prev).end && addr < (*it).start) {
-      _LOG(log, logtype::MAPS, "--->Fault address falls at %" PRIPTR " between mapped regions\n", addr);
-    }
-    prev = it;
-    bool in_map = has_fault_address && (addr >= (*it).start) && (addr < (*it).end);
-    dump_map(log, &*it, in_map);
-  }
-  if (has_fault_address && (addr >= (*prev).end)) {
-    _LOG(log, logtype::MAPS, "--->Fault address falls at %" PRIPTR " after any mapped regions\n", addr);
-  }
-}
-
-static void dump_thread(Backtrace* backtrace, log_t* log) {
-  dump_registers(log, backtrace->Tid());
-  dump_backtrace_and_stack(backtrace, log);
-
-  dump_memory_and_code(log, backtrace->Tid());
-  dump_nearby_maps(backtrace->GetMap(), log, backtrace->Tid());
 }
 
 // Return true if some thread is not detached cleanly
@@ -425,9 +440,10 @@ static bool dump_sibling_thread_report(
     _LOG(log, logtype::THREAD, "--- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---\n");
     dump_thread_info(log, pid, new_tid);
 
+    dump_registers(log, new_tid);
     UniquePtr<Backtrace> backtrace(Backtrace::Create(pid, new_tid, map));
     if (backtrace->Unwind(0)) {
-      dump_thread(backtrace.get(), log);
+      dump_backtrace_and_stack(backtrace.get(), log);
     }
 
     log->current_tid = log->crashed_tid;
@@ -458,7 +474,7 @@ static void dump_log_file(
   }
 
   logger_list = android_logger_list_open(
-      android_name_to_log_id(filename), O_RDONLY | O_NONBLOCK, tail, pid);
+      android_name_to_log_id(filename), ANDROID_LOG_RDONLY | ANDROID_LOG_NONBLOCK, tail, pid);
 
   if (!logger_list) {
     ALOGE("Unable to open %s: %s\n", filename, strerror(errno));
@@ -626,10 +642,13 @@ static bool dump_crash(log_t* log, pid_t pid, pid_t tid, int signal, int si_code
 
   UniquePtr<BacktraceMap> map(BacktraceMap::Create(pid));
   UniquePtr<Backtrace> backtrace(Backtrace::Create(pid, tid, map.get()));
+  dump_abort_message(backtrace.get(), log, abort_msg_address);
+  dump_registers(log, tid);
   if (backtrace->Unwind(0)) {
-    dump_abort_message(backtrace.get(), log, abort_msg_address);
-    dump_thread(backtrace.get(), log);
+    dump_backtrace_and_stack(backtrace.get(), log);
   }
+  dump_memory_and_code(log, tid);
+  dump_all_maps(backtrace.get(), map.get(), log, tid);
 
   if (want_logs) {
     dump_logs(log, pid, 5);
