@@ -17,7 +17,6 @@
 #include "ziparchive/zip_archive.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <getopt.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -39,27 +38,6 @@ static const uint8_t kATxtContents[] = {
 static const uint8_t kBTxtContents[] = {
   'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
   '\n'
-};
-
-static const uint16_t kATxtNameLength = 5;
-static const uint16_t kBTxtNameLength = 5;
-static const uint16_t kNonexistentTxtNameLength = 15;
-static const uint16_t kEmptyTxtNameLength = 9;
-
-static const uint8_t kATxtName[kATxtNameLength] = {
-  'a', '.', 't', 'x', 't'
-};
-
-static const uint8_t kBTxtName[kBTxtNameLength] = {
-  'b', '.', 't', 'x', 't'
-};
-
-static const uint8_t kNonexistentTxtName[kNonexistentTxtNameLength] = {
-  'n', 'o', 'n', 'e', 'x', 'i', 's', 't', 'e', 'n', 't', '.', 't', 'x' ,'t'
-};
-
-static const uint8_t kEmptyTxtName[kEmptyTxtNameLength] = {
-  'e', 'm', 'p', 't', 'y', '.', 't', 'x', 't'
 };
 
 static int32_t OpenArchiveWrapper(const std::string& name,
@@ -87,26 +65,6 @@ TEST(ziparchive, OpenMissing) {
 
   // Confirm the file descriptor is not going to be mistaken for a valid one.
   ASSERT_EQ(-1, GetFileDescriptor(handle));
-}
-
-TEST(ziparchive, OpenAssumeFdOwnership) {
-  int fd = open((test_data_dir + "/" + kValidZip).c_str(), O_RDONLY);
-  ASSERT_NE(-1, fd);
-  ZipArchiveHandle handle;
-  ASSERT_EQ(0, OpenArchiveFd(fd, "OpenWithAssumeFdOwnership", &handle));
-  CloseArchive(handle);
-  ASSERT_EQ(-1, lseek(fd, 0, SEEK_SET));
-  ASSERT_EQ(EBADF, errno);
-}
-
-TEST(ziparchive, OpenDoNotAssumeFdOwnership) {
-  int fd = open((test_data_dir + "/" + kValidZip).c_str(), O_RDONLY);
-  ASSERT_NE(-1, fd);
-  ZipArchiveHandle handle;
-  ASSERT_EQ(0, OpenArchiveFd(fd, "OpenWithAssumeFdOwnership", &handle, false));
-  CloseArchive(handle);
-  ASSERT_EQ(0, lseek(fd, 0, SEEK_SET));
-  close(fd);
 }
 
 TEST(ziparchive, Iteration) {
@@ -150,10 +108,7 @@ TEST(ziparchive, FindEntry) {
   ASSERT_EQ(0, OpenArchiveWrapper(kValidZip, &handle));
 
   ZipEntry data;
-  ZipEntryName name;
-  name.name = kATxtName;
-  name.name_length = kATxtNameLength;
-  ASSERT_EQ(0, FindEntry(handle, name, &data));
+  ASSERT_EQ(0, FindEntry(handle, "a.txt", &data));
 
   // Known facts about a.txt, from zipinfo -v.
   ASSERT_EQ(63, data.offset);
@@ -163,26 +118,7 @@ TEST(ziparchive, FindEntry) {
   ASSERT_EQ(0x950821c5, data.crc32);
 
   // An entry that doesn't exist. Should be a negative return code.
-  ZipEntryName absent_name;
-  absent_name.name = kNonexistentTxtName;
-  absent_name.name_length = kNonexistentTxtNameLength;
-  ASSERT_LT(FindEntry(handle, absent_name, &data), 0);
-
-  CloseArchive(handle);
-}
-
-TEST(ziparchive, TestInvalidDeclaredLength) {
-  ZipArchiveHandle handle;
-  ASSERT_EQ(0, OpenArchiveWrapper("declaredlength.zip", &handle));
-
-  void* iteration_cookie;
-  ASSERT_EQ(0, StartIteration(handle, &iteration_cookie, NULL));
-
-  ZipEntryName name;
-  ZipEntry data;
-
-  ASSERT_EQ(Next(iteration_cookie, &data, &name), 0);
-  ASSERT_EQ(Next(iteration_cookie, &data, &name), 0);
+  ASSERT_LT(FindEntry(handle, "nonexistent.txt", &data), 0);
 
   CloseArchive(handle);
 }
@@ -193,10 +129,7 @@ TEST(ziparchive, ExtractToMemory) {
 
   // An entry that's deflated.
   ZipEntry data;
-  ZipEntryName a_name;
-  a_name.name = kATxtName;
-  a_name.name_length = kATxtNameLength;
-  ASSERT_EQ(0, FindEntry(handle, a_name, &data));
+  ASSERT_EQ(0, FindEntry(handle, "a.txt", &data));
   const uint32_t a_size = data.uncompressed_length;
   ASSERT_EQ(a_size, sizeof(kATxtContents));
   uint8_t* buffer = new uint8_t[a_size];
@@ -205,10 +138,7 @@ TEST(ziparchive, ExtractToMemory) {
   delete[] buffer;
 
   // An entry that's stored.
-  ZipEntryName b_name;
-  b_name.name = kBTxtName;
-  b_name.name_length = kBTxtNameLength;
-  ASSERT_EQ(0, FindEntry(handle, b_name, &data));
+  ASSERT_EQ(0, FindEntry(handle, "b.txt", &data));
   const uint32_t b_size = data.uncompressed_length;
   ASSERT_EQ(b_size, sizeof(kBTxtContents));
   buffer = new uint8_t[b_size];
@@ -254,10 +184,7 @@ TEST(ziparchive, EmptyEntries) {
   ASSERT_EQ(0, OpenArchiveFd(fd, "EmptyEntriesTest", &handle));
 
   ZipEntry entry;
-  ZipEntryName empty_name;
-  empty_name.name = kEmptyTxtName;
-  empty_name.name_length = kEmptyTxtNameLength;
-  ASSERT_EQ(0, FindEntry(handle, empty_name, &entry));
+  ASSERT_EQ(0, FindEntry(handle, "empty.txt", &entry));
   ASSERT_EQ(static_cast<uint32_t>(0), entry.uncompressed_length);
   uint8_t buffer[1];
   ASSERT_EQ(0, ExtractToMemory(handle, &entry, buffer, 1));
@@ -304,10 +231,7 @@ TEST(ziparchive, ExtractToFile) {
   ASSERT_EQ(0, OpenArchiveWrapper(kValidZip, &handle));
 
   ZipEntry entry;
-  ZipEntryName name;
-  name.name = kATxtName;
-  name.name_length = kATxtNameLength;
-  ASSERT_EQ(0, FindEntry(handle, name, &entry));
+  ASSERT_EQ(0, FindEntry(handle, "a.txt", &entry));
   ASSERT_EQ(0, ExtractEntryToFile(handle, &entry, fd));
 
 

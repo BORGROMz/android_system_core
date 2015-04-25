@@ -43,7 +43,9 @@ Tokenizer::Tokenizer(const String8& filename, FileMap* fileMap, char* buffer,
 }
 
 Tokenizer::~Tokenizer() {
-    delete mFileMap;
+    if (mFileMap) {
+        mFileMap->release();
+    }
     if (mOwnBuffer) {
         delete[] mBuffer;
     }
@@ -72,7 +74,7 @@ status_t Tokenizer::open(const String8& filename, Tokenizer** outTokenizer) {
                 fileMap->advise(FileMap::SEQUENTIAL);
                 buffer = static_cast<char*>(fileMap->getDataPtr());
             } else {
-                delete fileMap;
+                fileMap->release();
                 fileMap = NULL;
 
                 // Fall back to reading into a buffer since we can't mmap files in sysfs.

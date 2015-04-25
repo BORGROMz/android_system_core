@@ -19,11 +19,10 @@ include $(CLEAR_VARS)
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/../mkbootimg \
   $(LOCAL_PATH)/../../extras/ext4_utils \
   $(LOCAL_PATH)/../../extras/f2fs_utils
-LOCAL_SRC_FILES := protocol.c engine.c bootimg_utils.cpp fastboot.cpp util.c fs.c
+LOCAL_SRC_FILES := protocol.c engine.c bootimg.c fastboot.c util.c fs.c
 LOCAL_MODULE := fastboot
 LOCAL_MODULE_TAGS := debug
-LOCAL_CONLYFLAGS += -std=gnu99
-LOCAL_CFLAGS += -Wall -Wextra -Werror
+LOCAL_CFLAGS += -std=gnu99 -Werror
 
 ifeq ($(HOST_OS),linux)
   LOCAL_SRC_FILES += usb_linux.c util_linux.c
@@ -33,7 +32,6 @@ ifeq ($(HOST_OS),darwin)
   LOCAL_SRC_FILES += usb_osx.c util_osx.c
   LOCAL_LDLIBS += -lpthread -framework CoreFoundation -framework IOKit \
 	-framework Carbon
-  LOCAL_CFLAGS += -Wno-unused-parameter
 endif
 
 ifeq ($(HOST_OS),windows)
@@ -53,11 +51,10 @@ endif
 
 LOCAL_STATIC_LIBRARIES := \
     $(EXTRA_STATIC_LIBS) \
-    libziparchive-host \
+    libzipfile \
+    libunz \
     libext4_utils_host \
     libsparse_host \
-    libutils \
-    liblog \
     libz
 
 ifneq ($(HOST_OS),windows)
@@ -73,16 +70,6 @@ LOCAL_REQUIRED_MODULES := libf2fs_fmt_host_dyn
 # and do not use code in external/f2fs-tools.
 LOCAL_STATIC_LIBRARIES += libf2fs_utils_host libf2fs_ioutils_host libf2fs_dlutils_host
 endif
-
-# libc++ not available on windows yet
-ifneq ($(HOST_OS),windows)
-    LOCAL_CXX_STL := libc++_static
-endif
-
-# Don't add anything here, we don't want additional shared dependencies
-# on the host fastboot tool, and shared libraries that link against libc++
-# will violate ODR
-LOCAL_SHARED_LIBRARIES :=
 
 include $(BUILD_HOST_EXECUTABLE)
 

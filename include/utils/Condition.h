@@ -21,7 +21,7 @@
 #include <sys/types.h>
 #include <time.h>
 
-#if !defined(_WIN32)
+#if defined(HAVE_PTHREADS)
 # include <pthread.h>
 #endif
 
@@ -74,7 +74,7 @@ public:
     void broadcast();
 
 private:
-#if !defined(_WIN32)
+#if defined(HAVE_PTHREADS)
     pthread_cond_t mCond;
 #else
     void*   mState;
@@ -83,7 +83,7 @@ private:
 
 // ---------------------------------------------------------------------------
 
-#if !defined(_WIN32)
+#if defined(HAVE_PTHREADS)
 
 inline Condition::Condition() {
     pthread_cond_init(&mCond, NULL);
@@ -113,15 +113,15 @@ inline status_t Condition::waitRelative(Mutex& mutex, nsecs_t reltime) {
     return -pthread_cond_timedwait_relative_np(&mCond, &mutex.mMutex, &ts);
 #else // HAVE_PTHREAD_COND_TIMEDWAIT_RELATIVE
     struct timespec ts;
-#if defined(__linux__)
+#if defined(HAVE_POSIX_CLOCKS)
     clock_gettime(CLOCK_REALTIME, &ts);
-#else // __APPLE__
+#else // HAVE_POSIX_CLOCKS
     // we don't support the clocks here.
     struct timeval t;
     gettimeofday(&t, NULL);
     ts.tv_sec = t.tv_sec;
     ts.tv_nsec= t.tv_usec*1000;
-#endif
+#endif // HAVE_POSIX_CLOCKS
     ts.tv_sec += reltime/1000000000;
     ts.tv_nsec+= reltime%1000000000;
     if (ts.tv_nsec >= 1000000000) {
@@ -149,7 +149,7 @@ inline void Condition::broadcast() {
     pthread_cond_broadcast(&mCond);
 }
 
-#endif // !defined(_WIN32)
+#endif // HAVE_PTHREADS
 
 // ---------------------------------------------------------------------------
 }; // namespace android

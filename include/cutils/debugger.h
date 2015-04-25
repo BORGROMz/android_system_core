@@ -17,14 +17,20 @@
 #ifndef __CUTILS_DEBUGGER_H
 #define __CUTILS_DEBUGGER_H
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 
-__BEGIN_DECLS
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#define DEBUGGER_SOCKET_NAME "android:debuggerd"
-#define DEBUGGER32_SOCKET_NAME "android:debuggerd32"
-#define DEBUGGER64_SOCKET_NAME DEBUGGER_SOCKET_NAME
+#define DEBUGGER32_SOCKET_NAME "android:debuggerd"
+#define DEBUGGER64_SOCKET_NAME "android:debuggerd64"
+
+#if defined(__LP64__)
+#define DEBUGGER_SOCKET_NAME DEBUGGER64_SOCKET_NAME
+#else
+#define DEBUGGER_SOCKET_NAME DEBUGGER32_SOCKET_NAME
+#endif
 
 typedef enum {
     // dump a crash
@@ -35,16 +41,22 @@ typedef enum {
     DEBUGGER_ACTION_DUMP_BACKTRACE,
 } debugger_action_t;
 
-// Make sure that all values have a fixed size so that this structure
-// is the same for 32 bit and 64 bit processes.
-// NOTE: Any changes to this structure must also be reflected in
-//       bionic/linker/debugger.cpp.
-typedef struct __attribute__((packed)) {
-    int32_t action;
+typedef struct {
+    debugger_action_t action;
     pid_t tid;
-    uint64_t abort_msg_address;
+    uintptr_t abort_msg_address;
     int32_t original_si_code;
 } debugger_msg_t;
+
+#if defined(__LP64__)
+// For a 64 bit process to contact the 32 bit debuggerd.
+typedef struct {
+    debugger_action_t action;
+    pid_t tid;
+    uint32_t abort_msg_address;
+    int32_t original_si_code;
+} debugger32_msg_t;
+#endif
 
 /* Dumps a process backtrace, registers, and stack to a tombstone file (requires root).
  * Stores the tombstone path in the provided buffer.
@@ -72,6 +84,8 @@ int dump_backtrace_to_file(pid_t tid, int fd);
  */
 int dump_backtrace_to_file_timeout(pid_t tid, int fd, int timeout_secs);
 
-__END_DECLS
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __CUTILS_DEBUGGER_H */

@@ -39,20 +39,15 @@ int Prune::cmp(uid_t uid, pid_t pid) const {
 
 void Prune::format(char **strp) {
     if (mUid != uid_all) {
-        if (mPid != pid_all) {
-            asprintf(strp, "%u/%u", mUid, mPid);
-        } else {
-            asprintf(strp, "%u", mUid);
-        }
-    } else if (mPid != pid_all) {
-        asprintf(strp, "/%u", mPid);
-    } else { // NB: mPid == pid_all can not happen if mUid == uid_all
-        asprintf(strp, "/");
+        asprintf(strp, (mPid != pid_all) ? "%u/%u" : "%u", mUid, mPid);
+    } else {
+        // NB: mPid == pid_all can not happen if mUid == uid_all
+        asprintf(strp, (mPid != pid_all) ? "/%u" : "/", mPid);
     }
 }
 
 PruneList::PruneList()
-        : mWorstUidEnabled(true) {
+        : mWorstUidEnabled(false) {
     mNaughty.clear();
     mNice.clear();
 }
@@ -70,7 +65,7 @@ PruneList::~PruneList() {
 }
 
 int PruneList::init(char *str) {
-    mWorstUidEnabled = true;
+    mWorstUidEnabled = false;
     PruneCollection::iterator it;
     for (it = mNice.begin(); it != mNice.end();) {
         delete (*it);

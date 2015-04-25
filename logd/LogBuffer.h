@@ -37,6 +37,7 @@ class LogBuffer {
     pthread_mutex_t mLogElementsLock;
 
     LogStatistics stats;
+    bool dgramQlenStatistics;
 
     PruneList mPrune;
 
@@ -46,14 +47,13 @@ public:
     LastLogTimes &mTimes;
 
     LogBuffer(LastLogTimes *times);
-    void init();
 
-    int log(log_id_t log_id, log_time realtime,
-            uid_t uid, pid_t pid, pid_t tid,
-            const char *msg, unsigned short len);
-    uint64_t flushTo(SocketClient *writer, const uint64_t start,
+    void log(log_id_t log_id, log_time realtime,
+             uid_t uid, pid_t pid, pid_t tid,
+             const char *msg, unsigned short len);
+    log_time flushTo(SocketClient *writer, const log_time start,
                      bool privileged,
-                     int (*filter)(const LogBufferElement *element, void *arg) = NULL,
+                     bool (*filter)(const LogBufferElement *element, void *arg) = NULL,
                      void *arg = NULL);
 
     void clear(log_id_t id, uid_t uid = AID_ROOT);
@@ -62,6 +62,11 @@ public:
     unsigned long getSizeUsed(log_id_t id);
     // *strp uses malloc, use free to release.
     void formatStatistics(char **strp, uid_t uid, unsigned int logMask);
+
+    void enableDgramQlenStatistics() {
+        stats.enableDgramQlenStatistics();
+        dgramQlenStatistics = true;
+    }
 
     void enableStatistics() {
         stats.enableStatistics();
@@ -78,7 +83,7 @@ public:
 private:
     void maybePrune(log_id_t id);
     void prune(log_id_t id, unsigned long pruneRows, uid_t uid = AID_ROOT);
-    LogBufferElementCollection::iterator erase(LogBufferElementCollection::iterator it);
+
 };
 
 #endif // _LOGD_LOG_BUFFER_H__

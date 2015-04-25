@@ -37,7 +37,7 @@ static inline SchedPolicy _policy(SchedPolicy p)
    return p == SP_DEFAULT ? SP_SYSTEM_DEFAULT : p;
 }
 
-#if defined(HAVE_ANDROID_OS)
+#if defined(HAVE_ANDROID_OS) && defined(HAVE_SCHED_H) && defined(HAVE_PTHREADS)
 
 #include <pthread.h>
 #include <sched.h>
@@ -203,9 +203,11 @@ static int getSchedulerGroup(int tid, char* buf, size_t bufLen)
 
 int get_sched_policy(int tid, SchedPolicy *policy)
 {
+#ifdef HAVE_GETTID
     if (tid == 0) {
         tid = gettid();
     }
+#endif
     pthread_once(&the_once, __initialize);
 
     if (__sys_supports_schedgroups) {
@@ -238,9 +240,11 @@ int get_sched_policy(int tid, SchedPolicy *policy)
 
 int set_sched_policy(int tid, SchedPolicy policy)
 {
+#ifdef HAVE_GETTID
     if (tid == 0) {
         tid = gettid();
     }
+#endif
     policy = _policy(policy);
     pthread_once(&the_once, __initialize);
 

@@ -491,8 +491,7 @@ public:
                 TYPE::renameRefId(d[i].get(), &s[i], &d[i]);
             }
         public:
-            Renamer(sp<TYPE>* d, sp<TYPE> const* s) : d(d), s(s) { }
-            virtual ~Renamer() { }
+            Renamer(sp<TYPE>* d, sp<TYPE> const* s) : s(s), d(d) { }
         };
 
         memmove(d, s, n*sizeof(sp<TYPE>));
@@ -511,8 +510,7 @@ public:
                 TYPE::renameRefId(d[i].get_refs(), &s[i], &d[i]);
             }
         public:
-            Renamer(wp<TYPE>* d, wp<TYPE> const* s) : d(d), s(s) { }
-            virtual ~Renamer() { }
+            Renamer(wp<TYPE>* d, wp<TYPE> const* s) : s(s), d(d) { }
         };
 
         memmove(d, s, n*sizeof(wp<TYPE>));

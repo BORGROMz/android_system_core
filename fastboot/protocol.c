@@ -216,7 +216,7 @@ int fb_download_data(usb_handle *usb, const void *data, unsigned size)
     }
 }
 
-#define USB_BUF_SIZE 1024
+#define USB_BUF_SIZE 512
 static char usb_buf[USB_BUF_SIZE];
 static int usb_buf_len;
 
@@ -305,10 +305,7 @@ int fb_download_data_sparse(usb_handle *usb, struct sparse_file *s)
         return -1;
     }
 
-    r = fb_download_data_sparse_flush(usb);
-    if (r < 0) {
-        return -1;
-    }
+    fb_download_data_sparse_flush(usb);
 
     return _command_end(usb);
 }

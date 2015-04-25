@@ -37,11 +37,7 @@ void LogReader::notifyNewLog() {
 }
 
 bool LogReader::onDataAvailable(SocketClient *cli) {
-    static bool name_set;
-    if (!name_set) {
-        prctl(PR_SET_NAME, "logd.reader");
-        name_set = true;
-    }
+    prctl(PR_SET_NAME, "logd.reader");
 
     char buffer[255];
 
@@ -104,51 +100,50 @@ bool LogReader::onDataAvailable(SocketClient *cli) {
         nonBlock = true;
     }
 
-    uint64_t sequence = 1;
-    // Convert realtime to sequence number
-    if (start != log_time::EPOCH) {
+    // Convert realtime to monotonic time
+    if (start == log_time::EPOCH) {
+        start = LogTimeEntry::EPOCH;
+    } else {
         class LogFindStart {
             const pid_t mPid;
             const unsigned mLogMask;
             bool startTimeSet;
             log_time &start;
-            uint64_t &sequence;
-            uint64_t last;
+            log_time last;
 
         public:
-            LogFindStart(unsigned logMask, pid_t pid, log_time &start, uint64_t &sequence)
+            LogFindStart(unsigned logMask, pid_t pid, log_time &start)
                     : mPid(pid)
                     , mLogMask(logMask)
                     , startTimeSet(false)
                     , start(start)
-                    , sequence(sequence)
-                    , last(sequence)
+                    , last(LogTimeEntry::EPOCH)
             { }
 
-            static int callback(const LogBufferElement *element, void *obj) {
+            static bool callback(const LogBufferElement *element, void *obj) {
                 LogFindStart *me = reinterpret_cast<LogFindStart *>(obj);
-                if ((!me->mPid || (me->mPid == element->getPid()))
+                if (!me->startTimeSet
+                        && (!me->mPid || (me->mPid == element->getPid()))
                         && (me->mLogMask & (1 << element->getLogId()))) {
                     if (me->start == element->getRealTime()) {
-                        me->sequence = element->getSequence();
+                        me->start = element->getMonotonicTime();
                         me->startTimeSet = true;
-                        return -1;
                     } else {
                         if (me->start < element->getRealTime()) {
-                            me->sequence = me->last;
+                            me->start = me->last;
                             me->startTimeSet = true;
-                            return -1;
                         }
-                        me->last = element->getSequence();
+                        me->last = element->getMonotonicTime();
                     }
                 }
                 return false;
             }
 
             bool found() { return startTimeSet; }
-        } logFindStart(logMask, pid, start, sequence);
+        } logFindStart(logMask, pid, start);
 
-        logbuf().flushTo(cli, sequence, FlushCommand::hasReadLogs(cli),
+        logbuf().flushTo(cli, LogTimeEntry::EPOCH,
+                         FlushCommand::hasReadLogs(cli),
                          logFindStart.callback, &logFindStart);
 
         if (!logFindStart.found()) {
@@ -156,11 +151,12 @@ bool LogReader::onDataAvailable(SocketClient *cli) {
                 doSocketDelete(cli);
                 return false;
             }
-            sequence = LogBufferElement::getCurrentSequence();
+            log_time now(CLOCK_MONOTONIC);
+            start = now;
         }
     }
 
-    FlushCommand command(*this, nonBlock, tail, logMask, pid, sequence);
+    FlushCommand command(*this, nonBlock, tail, logMask, pid, start);
     command.runSocketCommand(cli);
     return true;
 }

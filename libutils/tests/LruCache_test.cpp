@@ -20,7 +20,7 @@
 #include <cutils/log.h>
 #include <gtest/gtest.h>
 
-namespace {
+namespace android {
 
 typedef int SimpleKey;
 typedef const char* StringValue;
@@ -53,6 +53,10 @@ struct ComplexKey {
 
 ssize_t ComplexKey::instanceCount = 0;
 
+template<> inline hash_t hash_type(const ComplexKey& value) {
+    return hash_type(value.k);
+}
+
 struct ComplexValue {
     int v;
 
@@ -73,16 +77,7 @@ struct ComplexValue {
 
 ssize_t ComplexValue::instanceCount = 0;
 
-} // namespace
-
-
-namespace android {
-
 typedef LruCache<ComplexKey, ComplexValue> ComplexCache;
-
-template<> inline android::hash_t hash_type(const ComplexKey& value) {
-    return hash_type(value.k);
-}
 
 class EntryRemovedCallback : public OnEntryRemoved<SimpleKey, StringValue> {
 public:

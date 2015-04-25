@@ -28,7 +28,7 @@
 /* features that may be set (via the events set/add/del interface) */
 #define FDE_DONT_CLOSE        0x0080
 
-struct fdevent;
+typedef struct fdevent fdevent;
 
 typedef void (*fd_func)(int fd, unsigned events, void *userdata);
 
@@ -64,18 +64,20 @@ void fdevent_set_timeout(fdevent *fde, int64_t  timeout_ms);
 */
 void fdevent_loop();
 
-struct fdevent {
+struct fdevent 
+{
     fdevent *next;
     fdevent *prev;
 
     int fd;
     int force_eof;
 
-    uint16_t state;
-    uint16_t events;
+    unsigned short state;
+    unsigned short events;
 
     fd_func func;
     void *arg;
 };
+
 
 #endif

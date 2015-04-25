@@ -19,7 +19,7 @@
 
 #include <stdio.h>
 
-#if defined(__APPLE__)
+#ifndef HAVE_OPEN_MEMSTREAM
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +31,6 @@ FILE* open_memstream(char** bufp, size_t* sizep);
 }
 #endif
 
-#endif /* __APPLE__ */
+#endif /*!HAVE_OPEN_MEMSTREAM*/
 
 #endif /*__CUTILS_OPEN_MEMSTREAM_H__*/

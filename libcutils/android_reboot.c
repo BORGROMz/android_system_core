@@ -20,7 +20,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <mntent.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -34,21 +33,37 @@
  */
 static int remount_ro_done(void)
 {
-    FILE* fp;
-    struct mntent* mentry;
+    FILE *f;
+    char mount_dev[256];
+    char mount_dir[256];
+    char mount_type[256];
+    char mount_opts[256];
+    int mount_freq;
+    int mount_passno;
+    int match;
     int found_rw_fs = 0;
 
-    if ((fp = setmntent("/proc/mounts", "r")) == NULL) {
-        /* If we can't read /proc/mounts, just give up. */
+    f = fopen("/proc/mounts", "r");
+    if (! f) {
+        /* If we can't read /proc/mounts, just give up */
         return 1;
     }
-    while ((mentry = getmntent(fp)) != NULL) {
-        if (!strncmp(mentry->mnt_fsname, "/dev/block", 10) && strstr(mentry->mnt_opts, "rw,")) {
+
+    do {
+        match = fscanf(f, "%255s %255s %255s %255s %d %d\n",
+                       mount_dev, mount_dir, mount_type,
+                       mount_opts, &mount_freq, &mount_passno);
+        mount_dev[255] = 0;
+        mount_dir[255] = 0;
+        mount_type[255] = 0;
+        mount_opts[255] = 0;
+        if ((match == 6) && !strncmp(mount_dev, "/dev/block", 10) && strstr(mount_opts, "rw,")) {
             found_rw_fs = 1;
             break;
         }
-    }
-    endmntent(fp);
+    } while (match != EOF);
+
+    fclose(f);
 
     return !found_rw_fs;
 }
@@ -89,7 +104,7 @@ static void remount_ro(void)
 }
 
 
-int android_reboot(int cmd, int flags UNUSED, const char *arg)
+int android_reboot(int cmd, int flags UNUSED, char *arg)
 {
     int ret;
 

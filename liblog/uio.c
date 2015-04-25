@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#if defined(_WIN32)
+#ifndef HAVE_SYS_UIO_H
 
 #include <log/uio.h>
 #include <unistd.h>
@@ -73,4 +73,4 @@ Exit:
     return total;
 }
 
-#endif
+#endif /* !HAVE_SYS_UIO_H */

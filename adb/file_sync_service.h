@@ -17,12 +17,22 @@
 #ifndef _FILE_SYNC_SERVICE_H_
 #define _FILE_SYNC_SERVICE_H_
 
-#include <string>
-
+#ifdef HAVE_BIG_ENDIAN
+static inline unsigned __swap_uint32(unsigned x) 
+{
+    return (((x) & 0xFF000000) >> 24)
+        | (((x) & 0x00FF0000) >> 8)
+        | (((x) & 0x0000FF00) << 8)
+        | (((x) & 0x000000FF) << 24);
+}
+#define htoll(x) __swap_uint32(x)
+#define ltohl(x) __swap_uint32(x)
+#define MKID(a,b,c,d) ((d) | ((c) << 8) | ((b) << 16) | ((a) << 24))
+#else
 #define htoll(x) (x)
 #define ltohl(x) (x)
-
 #define MKID(a,b,c,d) ((a) | ((b) << 8) | ((c) << 16) | ((d) << 24))
+#endif
 
 #define ID_STAT MKID('S','T','A','T')
 #define ID_LIST MKID('L','I','S','T')
@@ -36,7 +46,7 @@
 #define ID_FAIL MKID('F','A','I','L')
 #define ID_QUIT MKID('Q','U','I','T')
 
-union syncmsg {
+typedef union {
     unsigned id;
     struct {
         unsigned id;
@@ -63,13 +73,13 @@ union syncmsg {
         unsigned id;
         unsigned msglen;
     } status;
-} ;
+} syncmsg;
 
 
 void file_sync_service(int fd, void *cookie);
 int do_sync_ls(const char *path);
 int do_sync_push(const char *lpath, const char *rpath, int show_progress);
-int do_sync_sync(const std::string& lpath, const std::string& rpath, bool list_only);
+int do_sync_sync(const char *lpath, const char *rpath, int listonly);
 int do_sync_pull(const char *rpath, const char *lpath, int show_progress, int pullTime);
 
 #define SYNC_DATA_MAX (64*1024)

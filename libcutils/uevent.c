@@ -31,12 +31,12 @@
  */
 ssize_t uevent_kernel_multicast_recv(int socket, void *buffer, size_t length)
 {
-    uid_t uid = -1;
-    return uevent_kernel_multicast_uid_recv(socket, buffer, length, &uid);
+    uid_t user = -1;
+    return uevent_kernel_multicast_uid_recv(socket, buffer, length, &user);
 }
 
 /**
- * Like the above, but passes a uid_t in by pointer. In the event that this
+ * Like the above, but passes a uid_t in by reference. In the event that this
  * fails due to a bad uid check, the uid_t will be set to the uid of the
  * socket's peer.
  *
@@ -44,12 +44,8 @@ ssize_t uevent_kernel_multicast_recv(int socket, void *buffer, size_t length)
  * returns -1, sets errno to EIO, and sets "user" to the UID associated with the
  * message. If the peer UID cannot be determined, "user" is set to -1."
  */
-ssize_t uevent_kernel_multicast_uid_recv(int socket, void *buffer, size_t length, uid_t *uid)
-{
-    return uevent_kernel_recv(socket, buffer, length, true, uid);
-}
-
-ssize_t uevent_kernel_recv(int socket, void *buffer, size_t length, bool require_group, uid_t *uid)
+ssize_t uevent_kernel_multicast_uid_recv(int socket, void *buffer,
+                                         size_t length, uid_t *user)
 {
     struct iovec iov = { buffer, length };
     struct sockaddr_nl addr;
@@ -64,7 +60,7 @@ ssize_t uevent_kernel_recv(int socket, void *buffer, size_t length, bool require
         0,
     };
 
-    *uid = -1;
+    *user = -1;
     ssize_t n = recvmsg(socket, &hdr, 0);
     if (n <= 0) {
         return n;
@@ -77,18 +73,14 @@ ssize_t uevent_kernel_recv(int socket, void *buffer, size_t length, bool require
     }
 
     struct ucred *cred = (struct ucred *)CMSG_DATA(cmsg);
-    *uid = cred->uid;
+    *user = cred->uid;
     if (cred->uid != 0) {
         /* ignoring netlink message from non-root user */
         goto out;
     }
 
-    if (addr.nl_pid != 0) {
-        /* ignore non-kernel */
-        goto out;
-    }
-    if (require_group && addr.nl_groups == 0) {
-        /* ignore unicast messages when requested */
+    if (addr.nl_groups == 0 || addr.nl_pid != 0) {
+        /* ignoring non-kernel or unicast netlink message */
         goto out;
     }
 
@@ -112,7 +104,7 @@ int uevent_open_socket(int buf_sz, bool passcred)
     addr.nl_pid = getpid();
     addr.nl_groups = 0xffffffff;
 
-    s = socket(PF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC, NETLINK_KOBJECT_UEVENT);
+    s = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_KOBJECT_UEVENT);
     if(s < 0)
         return -1;
 

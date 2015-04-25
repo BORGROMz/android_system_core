@@ -17,32 +17,27 @@
 #ifndef _LIBBACKTRACE_UNWIND_CURRENT_H
 #define _LIBBACKTRACE_UNWIND_CURRENT_H
 
-#include <stdint.h>
-#include <sys/types.h>
-#include <ucontext.h>
-
 #include <string>
 
-#include <backtrace/Backtrace.h>
-#include <backtrace/BacktraceMap.h>
-
-#include "BacktraceCurrent.h"
+#include "BacktraceImpl.h"
 
 #define UNW_LOCAL_ONLY
 #include <libunwind.h>
 
-class UnwindCurrent : public BacktraceCurrent {
+class UnwindCurrent : public BacktraceImpl {
 public:
-  UnwindCurrent(pid_t pid, pid_t tid, BacktraceMap* map) : BacktraceCurrent(pid, tid, map) {}
-  virtual ~UnwindCurrent() {}
+  UnwindCurrent();
+  virtual ~UnwindCurrent();
 
-  std::string GetFunctionNameRaw(uintptr_t pc, uintptr_t* offset) override;
+  virtual bool Unwind(size_t num_ignore_frames, ucontext_t* ucontext);
 
-private:
-  void GetUnwContextFromUcontext(const ucontext_t* ucontext);
+  virtual std::string GetFunctionNameRaw(uintptr_t pc, uintptr_t* offset);
 
-  bool UnwindFromContext(size_t num_ignore_frames, ucontext_t* ucontext) override;
+  bool UnwindFromContext(size_t num_ignore_frames, bool within_handler);
 
+  void GetUnwContextFromUcontext(const ucontext_t* context);
+
+protected:
   unw_context_t context_;
 };
 

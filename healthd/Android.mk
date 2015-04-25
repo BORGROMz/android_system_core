@@ -1,5 +1,7 @@
 # Copyright 2013 The Android Open Source Project
 
+ifneq ($(BUILD_TINY_ANDROID),true)
+
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -75,3 +77,5 @@ include $(BUILD_PHONY_PACKAGE)
 
 _add-charger-image :=
 _img_modules :=
+
+endif

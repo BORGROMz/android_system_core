@@ -15,7 +15,6 @@
  */
 
 #include <fcntl.h>
-#include <malloc.h>
 #include <poll.h>
 #include <pthread.h>
 #include <sys/resource.h>

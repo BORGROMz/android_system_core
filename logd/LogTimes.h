@@ -22,7 +22,6 @@
 #include <sys/types.h>
 #include <sysutils/SocketClient.h>
 #include <utils/List.h>
-#include <log/log.h>
 
 class LogReader;
 
@@ -39,7 +38,7 @@ class LogTimeEntry {
     static void threadStop(void *me);
     const unsigned int mLogMask;
     const pid_t mPid;
-    unsigned int skipAhead[LOG_ID_MAX];
+    unsigned int skipAhead;
     unsigned long mCount;
     unsigned long mTail;
     unsigned long mIndex;
@@ -47,12 +46,13 @@ class LogTimeEntry {
 public:
     LogTimeEntry(LogReader &reader, SocketClient *client, bool nonBlock,
                  unsigned long tail, unsigned int logMask, pid_t pid,
-                 uint64_t start);
+                 log_time start);
 
     SocketClient *mClient;
-    uint64_t mStart;
+    static const struct timespec EPOCH;
+    log_time mStart;
     const bool mNonBlock;
-    const uint64_t mEnd; // only relevant if mNonBlock
+    const log_time mEnd; // only relevant if mNonBlock
 
     // Protect List manipulations
     static void lock(void) { pthread_mutex_lock(&timesLock); }
@@ -67,8 +67,7 @@ public:
         pthread_cond_signal(&threadTriggeredCondition);
     }
 
-    void triggerSkip_Locked(log_id_t id, unsigned int skip) { skipAhead[id] = skip; }
-    void cleanSkip_Locked(void);
+    void triggerSkip_Locked(unsigned int skip) { skipAhead = skip; }
 
     // Called after LogTimeEntry removed from list, lock implicitly held
     void release_Locked(void) {
@@ -100,10 +99,10 @@ public:
         // No one else is holding a reference to this
         delete this;
     }
-    bool isWatching(log_id_t id) { return (mLogMask & (1<<id)) != 0; }
+
     // flushTo filter callbacks
-    static int FilterFirstPass(const LogBufferElement *element, void *me);
-    static int FilterSecondPass(const LogBufferElement *element, void *me);
+    static bool FilterFirstPass(const LogBufferElement *element, void *me);
+    static bool FilterSecondPass(const LogBufferElement *element, void *me);
 };
 
 typedef android::List<LogTimeEntry *> LastLogTimes;

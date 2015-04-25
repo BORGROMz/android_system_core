@@ -23,17 +23,16 @@
 #include <android/log.h>
 
 /* the rest is only used internally by the system */
-#if !defined(_WIN32)
+#include <time.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <sys/types.h>
+#ifdef HAVE_PTHREADS
 #include <pthread.h>
 #endif
-#include <stdarg.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <sys/types.h>
-#include <time.h>
-#include <unistd.h>
-
 #include <log/uio.h>
+#include <stdarg.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -14,36 +14,35 @@
  * limitations under the License.
  */
 
-#include <stdint.h>
+#include <backtrace/Backtrace.h>
+#include <backtrace/BacktraceMap.h>
+
 #include <sys/types.h>
+#include <string.h>
 #include <ucontext.h>
 
 #include <libunwind.h>
 #include <libunwind-ptrace.h>
 
-#include <backtrace/Backtrace.h>
-#include <backtrace/BacktraceMap.h>
-
 #include "BacktraceLog.h"
 #include "UnwindMap.h"
 #include "UnwindPtrace.h"
 
-UnwindPtrace::UnwindPtrace(pid_t pid, pid_t tid, BacktraceMap* map)
-    : BacktracePtrace(pid, tid, map), addr_space_(nullptr), upt_info_(nullptr) {
+UnwindPtrace::UnwindPtrace() : addr_space_(NULL), upt_info_(NULL) {
 }
 
 UnwindPtrace::~UnwindPtrace() {
   if (upt_info_) {
     _UPT_destroy(upt_info_);
-    upt_info_ = nullptr;
+    upt_info_ = NULL;
   }
   if (addr_space_) {
     // Remove the map from the address space before destroying it.
     // It will be freed in the UnwindMap destructor.
-    unw_map_set(addr_space_, nullptr);
+    unw_map_set(addr_space_, NULL);
 
     unw_destroy_addr_space(addr_space_);
-    addr_space_ = nullptr;
+    addr_space_ = NULL;
   }
 }
 
@@ -75,6 +74,8 @@ bool UnwindPtrace::Unwind(size_t num_ignore_frames, ucontext_t* ucontext) {
     return false;
   }
 
+  std::vector<backtrace_frame_data_t>* frames = GetFrames();
+  frames->reserve(MAX_BACKTRACE_FRAMES);
   size_t num_frames = 0;
   do {
     unw_word_t pc;
@@ -91,21 +92,21 @@ bool UnwindPtrace::Unwind(size_t num_ignore_frames, ucontext_t* ucontext) {
     }
 
     if (num_ignore_frames == 0) {
-      frames_.resize(num_frames+1);
-      backtrace_frame_data_t* frame = &frames_.at(num_frames);
+      frames->resize(num_frames+1);
+      backtrace_frame_data_t* frame = &frames->at(num_frames);
       frame->num = num_frames;
       frame->pc = static_cast<uintptr_t>(pc);
       frame->sp = static_cast<uintptr_t>(sp);
       frame->stack_size = 0;
 
       if (num_frames > 0) {
-        backtrace_frame_data_t* prev = &frames_.at(num_frames-1);
+        backtrace_frame_data_t* prev = &frames->at(num_frames-1);
         prev->stack_size = frame->sp - prev->sp;
       }
 
       frame->func_name = GetFunctionName(frame->pc, &frame->func_offset);
 
-      FillInMap(frame->pc, &frame->map);
+      frame->map = FindMap(frame->pc);
 
       num_frames++;
     } else {
@@ -127,4 +128,11 @@ std::string UnwindPtrace::GetFunctionNameRaw(uintptr_t pc, uintptr_t* offset) {
     return buf;
   }
   return "";
+}
+
+//-------------------------------------------------------------------------
+// C++ object creation function.
+//-------------------------------------------------------------------------
+Backtrace* CreatePtraceObj(pid_t pid, pid_t tid, BacktraceMap* map) {
+  return new BacktracePtrace(new UnwindPtrace(), pid, tid, map);
 }

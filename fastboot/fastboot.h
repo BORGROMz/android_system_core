@@ -31,10 +31,6 @@
 
 #include "usb.h"
 
-#if defined(__cplusplus)
-extern "C" {
-#endif
-
 struct sparse_file;
 
 /* protocol.c - fastboot protocol */
@@ -71,13 +67,7 @@ double now();
 char *mkmsg(const char *fmt, ...);
 void die(const char *fmt, ...);
 
-void get_my_path(char *path);
-
 /* Current product */
 extern char cur_product[FB_RESPONSE_SZ + 1];
-
-#if defined(__cplusplus)
-}
-#endif
 
 #endif

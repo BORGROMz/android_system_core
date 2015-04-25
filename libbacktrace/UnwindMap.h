@@ -17,9 +17,6 @@
 #ifndef _LIBBACKTRACE_UNWIND_MAP_H
 #define _LIBBACKTRACE_UNWIND_MAP_H
 
-#include <stdint.h>
-#include <sys/types.h>
-
 #include <backtrace/BacktraceMap.h>
 
 // The unw_map_cursor_t structure is different depending on whether it is
@@ -48,7 +45,7 @@ public:
 
   virtual bool Build();
 
-  virtual void FillIn(uintptr_t addr, backtrace_map_t* map);
+  virtual const backtrace_map_t* Find(uintptr_t addr);
 
 protected:
   virtual bool GenerateMap();

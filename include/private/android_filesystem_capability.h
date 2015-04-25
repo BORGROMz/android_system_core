@@ -105,9 +105,7 @@ struct vfs_cap_data {
 #define CAP_MAC_ADMIN 33
 #define CAP_SYSLOG 34
 #define CAP_WAKE_ALARM 35
-#define CAP_BLOCK_SUSPEND 36
-#define CAP_AUDIT_READ 37
-#define CAP_LAST_CAP CAP_AUDIT_READ
+#define CAP_LAST_CAP CAP_WAKE_ALARM
 #define cap_valid(x) ((x) >= 0 && (x) <= CAP_LAST_CAP)
 #define CAP_TO_INDEX(x) ((x) >> 5)
 #define CAP_TO_MASK(x) (1 << ((x) & 31))

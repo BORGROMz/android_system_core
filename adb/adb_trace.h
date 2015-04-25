@@ -19,8 +19,6 @@
 
 #if !ADB_HOST
 #include <android/log.h>
-#else
-#include <stdio.h>
 #endif
 
 /* define ADB_TRACE to 1 to enable tracing support, or 0 to disable it */
@@ -30,7 +28,7 @@
  * forget to update the corresponding 'tags' table in
  * the adb_trace_init() function implemented in adb.c
  */
-enum AdbTrace {
+typedef enum {
     TRACE_ADB = 0,   /* 0x001 */
     TRACE_SOCKETS,
     TRACE_PACKETS,
@@ -43,7 +41,7 @@ enum AdbTrace {
     TRACE_SERVICES,
     TRACE_AUTH,
     TRACE_FDEVENT,
-} ;
+} AdbTrace;
 
 #if ADB_TRACE
 
@@ -75,9 +73,8 @@ void    adb_trace_init(void);
             if (ADB_TRACING) {                         \
                 int save_errno = errno;                \
                 adb_mutex_lock(&D_lock);               \
-                fprintf(stderr, "%16s: %5d:%5lu | ",   \
-                        __FUNCTION__,                  \
-                        getpid(), adb_thread_id());    \
+                fprintf(stderr, "%s::%s():",           \
+                        __FILE__, __FUNCTION__);       \
                 errno = save_errno;                    \
                 fprintf(stderr, __VA_ARGS__ );         \
                 fflush(stderr);                        \
@@ -99,16 +96,15 @@ void    adb_trace_init(void);
         } while (0)
 #  define  DD(...)                                     \
         do {                                           \
-            int save_errno = errno;                    \
-            adb_mutex_lock(&D_lock);                   \
-            fprintf(stderr, "%16s: %5d:%5lu | ",       \
-                    __FUNCTION__,                      \
-                    getpid(), adb_thread_id());        \
-            errno = save_errno;                        \
-            fprintf(stderr, __VA_ARGS__ );             \
-            fflush(stderr);                            \
-            adb_mutex_unlock(&D_lock);                 \
-            errno = save_errno;                        \
+          int save_errno = errno;                      \
+          adb_mutex_lock(&D_lock);                     \
+          fprintf(stderr, "%s::%s():",                 \
+                  __FILE__, __FUNCTION__);             \
+          errno = save_errno;                          \
+          fprintf(stderr, __VA_ARGS__ );               \
+          fflush(stderr);                              \
+          adb_mutex_unlock(&D_lock);                   \
+          errno = save_errno;                          \
         } while (0)
 #else
 #  define  D(...)                                      \

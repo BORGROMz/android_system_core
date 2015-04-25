@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #include <cutils/klog.h>
@@ -37,36 +36,41 @@ void klog_set_level(int level) {
     klog_level = level;
 }
 
-void klog_init(void) {
+void klog_init(void)
+{
+    static const char *name = "/dev/__kmsg__";
+
     if (klog_fd >= 0) return; /* Already initialized */
 
-    static const char* name = "/dev/__kmsg__";
     if (mknod(name, S_IFCHR | 0600, (1 << 8) | 11) == 0) {
-        klog_fd = open(name, O_WRONLY | O_CLOEXEC);
+        klog_fd = open(name, O_WRONLY);
+        if (klog_fd < 0)
+                return;
+        fcntl(klog_fd, F_SETFD, FD_CLOEXEC);
         unlink(name);
     }
 }
 
 #define LOG_BUF_MAX 512
 
-void klog_writev(int level, const struct iovec* iov, int iov_count) {
+void klog_vwrite(int level, const char *fmt, va_list ap)
+{
+    char buf[LOG_BUF_MAX];
+
     if (level > klog_level) return;
     if (klog_fd < 0) klog_init();
     if (klog_fd < 0) return;
-    TEMP_FAILURE_RETRY(writev(klog_fd, iov, iov_count));
-}
 
-void klog_write(int level, const char* fmt, ...) {
-    char buf[LOG_BUF_MAX];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-
+    vsnprintf(buf, LOG_BUF_MAX, fmt, ap);
     buf[LOG_BUF_MAX - 1] = 0;
 
-    struct iovec iov[1];
-    iov[0].iov_base = buf;
-    iov[0].iov_len = strlen(buf);
-    klog_writev(level, iov, 1);
+    write(klog_fd, buf, strlen(buf));
+}
+
+void klog_write(int level, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    klog_vwrite(level, fmt, ap);
+    va_end(ap);
 }

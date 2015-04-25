@@ -29,33 +29,71 @@
  * SUCH DAMAGE.
  */
 
-#include <errno.h>
+#include <sys/time.h>
+#include <linux/ioctl.h>
+#include <linux/rtc.h>
+#include <linux/android_alarm.h>
+#include <fcntl.h>
 #include <stdio.h>
-#include <string.h>
 #include <time.h>
 
-static void format_time(int time, char* buffer) {
-    int seconds = time % 60;
-    time /= 60;
-    int minutes = time % 60;
-    time /= 60;
-    int hours = time % 24;
-    int days = time / 24;
 
-    if (days > 0) {
-        sprintf(buffer, "%d day%s, %02d:%02d:%02d", days, (days == 1) ? "" : "s", hours, minutes, seconds);
-    } else {
+static void format_time(int time, char* buffer) {
+    int seconds, minutes, hours, days;
+
+    seconds = time % 60;
+    time /= 60;
+    minutes = time % 60;
+    time /= 60;
+    hours = time % 24;
+    days = time / 24;
+
+    if (days > 0)
+        sprintf(buffer, "%d days, %02d:%02d:%02d", days, hours, minutes, seconds);
+    else
         sprintf(buffer, "%02d:%02d:%02d", hours, minutes, seconds);
-    }
 }
 
-int uptime_main(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+static int elapsedRealtimeAlarm(struct timespec *ts)
+{
+    int fd, result;
+
+    fd = open("/dev/alarm", O_RDONLY);
+    if (fd < 0)
+        return fd;
+
+    result = ioctl(fd, ANDROID_ALARM_GET_TIME(ANDROID_ALARM_ELAPSED_REALTIME), ts);
+    close(fd);
+
+    return result;
+}
+
+int64_t elapsedRealtime()
+{
+    struct timespec ts;
+
+    int result = elapsedRealtimeAlarm(&ts);
+    if (result < 0)
+        result = clock_gettime(CLOCK_BOOTTIME, &ts);
+
+    if (result == 0)
+        return ts.tv_sec;
+    return -1;
+}
+
+int uptime_main(int argc __attribute__((unused)),
+        char *argv[] __attribute__((unused)))
+{
+    float up_time, idle_time;
+    char up_string[100], idle_string[100], sleep_string[100];
+    int elapsed;
+    struct timespec up_timespec;
+
     FILE* file = fopen("/proc/uptime", "r");
     if (!file) {
         fprintf(stderr, "Could not open /proc/uptime\n");
         return -1;
     }
-    float idle_time;
     if (fscanf(file, "%*f %f", &idle_time) != 1) {
         fprintf(stderr, "Could not parse /proc/uptime\n");
         fclose(file);
@@ -63,21 +101,18 @@ int uptime_main(int argc __attribute__((unused)), char *argv[] __attribute__((un
     }
     fclose(file);
 
-    struct timespec up_timespec;
-    if (clock_gettime(CLOCK_MONOTONIC, &up_timespec) == -1) {
-        fprintf(stderr, "Could not get monotonic time: %s\n", strerror(errno));
+    if (clock_gettime(CLOCK_MONOTONIC, &up_timespec) < 0) {
+        fprintf(stderr, "Could not get monotonic time\n");
 	return -1;
     }
-    float up_time = up_timespec.tv_sec + up_timespec.tv_nsec / 1e9;
+    up_time = up_timespec.tv_sec + up_timespec.tv_nsec / 1e9;
 
-    struct timespec elapsed_timespec;
-    if (clock_gettime(CLOCK_BOOTTIME, &elapsed_timespec) == -1) {
-        fprintf(stderr, "Could not get boot time: %s\n", strerror(errno));
+    elapsed = elapsedRealtime();
+    if (elapsed < 0) {
+        fprintf(stderr, "elapsedRealtime failed\n");
         return -1;
     }
-    int elapsed = elapsed_timespec.tv_sec;
 
-    char up_string[100], idle_string[100], sleep_string[100];
     format_time(elapsed, up_string);
     format_time((int)idle_time, idle_string);
     format_time((int)(elapsed - up_time), sleep_string);

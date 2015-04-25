@@ -15,44 +15,39 @@
  */
 
 #include <ctype.h>
-#include <endian.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <sys/klog.h>
 #include <sys/prctl.h>
 #include <sys/uio.h>
 #include <syslog.h>
 
-#include <private/android_filesystem_config.h>
-#include <private/android_logger.h>
-
 #include "libaudit.h"
 #include "LogAudit.h"
 
-#define KMSG_PRIORITY(PRI)                          \
-    '<',                                            \
-    '0' + LOG_MAKEPRI(LOG_AUTH, LOG_PRI(PRI)) / 10, \
-    '0' + LOG_MAKEPRI(LOG_AUTH, LOG_PRI(PRI)) % 10, \
+#define KMSG_PRIORITY(PRI)         \
+    '<',                           \
+    '0' + (LOG_AUTH | (PRI)) / 10, \
+    '0' + (LOG_AUTH | (PRI)) % 10, \
     '>'
 
-LogAudit::LogAudit(LogBuffer *buf, LogReader *reader, int fdDmesg)
+LogAudit::LogAudit(LogBuffer *buf, LogReader *reader, int fdDmsg)
         : SocketListener(getLogSocket(), false)
         , logbuf(buf)
         , reader(reader)
-        , fdDmesg(fdDmesg)
-        , initialized(false) {
+        , fdDmesg(-1) {
     static const char auditd_message[] = { KMSG_PRIORITY(LOG_INFO),
         'l', 'o', 'g', 'd', '.', 'a', 'u', 'd', 'i', 't', 'd', ':',
         ' ', 's', 't', 'a', 'r', 't', '\n' };
-    write(fdDmesg, auditd_message, sizeof(auditd_message));
+    write(fdDmsg, auditd_message, sizeof(auditd_message));
+    logDmesg();
+    fdDmesg = fdDmsg;
 }
 
 bool LogAudit::onDataAvailable(SocketClient *cli) {
-    if (!initialized) {
-        prctl(PR_SET_NAME, "logd.auditd");
-        initialized = true;
-    }
+    prctl(PR_SET_NAME, "logd.auditd");
 
     struct audit_message rep;
 
@@ -65,8 +60,7 @@ bool LogAudit::onDataAvailable(SocketClient *cli) {
         return false;
     }
 
-    logPrint("type=%d %.*s",
-        rep.nlh.nlmsg_type, rep.nlh.nlmsg_len, rep.data);
+    logPrint("type=%d %.*s", rep.nlh.nlmsg_type, rep.nlh.nlmsg_len, rep.data);
 
     return true;
 }
@@ -93,7 +87,7 @@ int LogAudit::logPrint(const char *fmt, ...) {
     }
 
     bool info = strstr(str, " permissive=1") || strstr(str, " policy loaded ");
-    if ((fdDmesg >= 0) && initialized) {
+    if (fdDmesg >= 0) {
         struct iovec iov[3];
         static const char log_info[] = { KMSG_PRIORITY(LOG_INFO) };
         static const char log_warning[] = { KMSG_PRIORITY(LOG_WARNING) };
@@ -111,7 +105,7 @@ int LogAudit::logPrint(const char *fmt, ...) {
 
     pid_t pid = getpid();
     pid_t tid = gettid();
-    uid_t uid = AID_LOGD;
+    uid_t uid = getuid();
     log_time now;
 
     static const char audit_str[] = " audit(";
@@ -142,27 +136,31 @@ int LogAudit::logPrint(const char *fmt, ...) {
     // log to events
 
     size_t l = strlen(str);
-    size_t n = l + sizeof(android_log_event_string_t);
+    size_t n = l + sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
 
     bool notify = false;
 
-    android_log_event_string_t *event = static_cast<android_log_event_string_t *>(malloc(n));
-    if (!event) {
+    char *newstr = reinterpret_cast<char *>(malloc(n));
+    if (!newstr) {
         rc = -ENOMEM;
     } else {
-        event->header.tag = htole32(AUDITD_LOG_TAG);
-        event->type = EVENT_TYPE_STRING;
-        event->length = htole32(l);
-        memcpy(event->data, str, l);
+        cp = newstr;
+        *cp++ = AUDITD_LOG_TAG & 0xFF;
+        *cp++ = (AUDITD_LOG_TAG >> 8) & 0xFF;
+        *cp++ = (AUDITD_LOG_TAG >> 16) & 0xFF;
+        *cp++ = (AUDITD_LOG_TAG >> 24) & 0xFF;
+        *cp++ = EVENT_TYPE_STRING;
+        *cp++ = l & 0xFF;
+        *cp++ = (l >> 8) & 0xFF;
+        *cp++ = (l >> 16) & 0xFF;
+        *cp++ = (l >> 24) & 0xFF;
+        memcpy(cp, str, l);
 
-        rc = logbuf->log(LOG_ID_EVENTS, now, uid, pid, tid,
-                         reinterpret_cast<char *>(event),
-                         (n <= USHRT_MAX) ? (unsigned short) n : USHRT_MAX);
-        free(event);
+        logbuf->log(LOG_ID_EVENTS, now, uid, pid, tid, newstr,
+                    (n <= USHRT_MAX) ? (unsigned short) n : USHRT_MAX);
+        free(newstr);
 
-        if (rc >= 0) {
-            notify = true;
-        }
+        notify = true;
     }
 
     // log to main
@@ -190,7 +188,7 @@ int LogAudit::logPrint(const char *fmt, ...) {
     }
     n = (estr - str) + strlen(ecomm) + l + 2;
 
-    char *newstr = static_cast<char *>(malloc(n));
+    newstr = reinterpret_cast<char *>(malloc(n));
     if (!newstr) {
         rc = -ENOMEM;
     } else {
@@ -199,44 +197,50 @@ int LogAudit::logPrint(const char *fmt, ...) {
         strncpy(newstr + 1 + l, str, estr - str);
         strcpy(newstr + 1 + l + (estr - str), ecomm);
 
-        rc = logbuf->log(LOG_ID_MAIN, now, uid, pid, tid, newstr,
-                         (n <= USHRT_MAX) ? (unsigned short) n : USHRT_MAX);
+        logbuf->log(LOG_ID_MAIN, now, uid, pid, tid, newstr,
+                    (n <= USHRT_MAX) ? (unsigned short) n : USHRT_MAX);
         free(newstr);
 
-        if (rc >= 0) {
-            notify = true;
-        }
+        notify = true;
     }
 
     free(str);
 
     if (notify) {
         reader->notifyNewLog();
-        if (rc < 0) {
-            rc = n;
-        }
     }
 
     return rc;
 }
 
-int LogAudit::log(char *buf) {
-    char *audit = strstr(buf, " audit(");
-    if (!audit) {
-        return -EXDEV;
+void LogAudit::logDmesg() {
+    int len = klogctl(KLOG_SIZE_BUFFER, NULL, 0);
+    if (len <= 0) {
+        return;
     }
 
-    *audit = '\0';
+    len++;
+    char buf[len];
 
-    int rc;
-    char *type = strstr(buf, "type=");
-    if (type) {
-        rc = logPrint("%s %s", type, audit + 1);
-    } else {
-        rc = logPrint("%s", audit + 1);
+    int rc = klogctl(KLOG_READ_ALL, buf, len);
+
+    buf[len - 1] = '\0';
+
+    for(char *tok = buf; (rc >= 0) && ((tok = strtok(tok, "\r\n"))); tok = NULL) {
+        char *audit = strstr(tok, " audit(");
+        if (!audit) {
+            continue;
+        }
+
+        *audit++ = '\0';
+
+        char *type = strstr(tok, "type=");
+        if (type) {
+            rc = logPrint("%s %s", type, audit);
+        } else {
+            rc = logPrint("%s", audit);
+        }
     }
-    *audit = ' ';
-    return rc;
 }
 
 int LogAudit::getLogSocket() {

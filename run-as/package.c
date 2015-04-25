@@ -16,11 +16,9 @@
 */
 #include <errno.h>
 #include <fcntl.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
 #include <unistd.h>
-
+#include <sys/stat.h>
+#include <sys/mman.h>
 #include <private/android_filesystem_config.h>
 #include "package.h"
 

@@ -360,7 +360,7 @@ static void SetupEnvironment(NativeBridgeCallbacks* callbacks, JNIEnv* env, cons
   if (env_values->os_arch != nullptr) {
     jclass sclass_id = env->FindClass("java/lang/System");
     if (sclass_id != nullptr) {
-      jmethodID set_prop_id = env->GetStaticMethodID(sclass_id, "setUnchangeableSystemProperty",
+      jmethodID set_prop_id = env->GetStaticMethodID(sclass_id, "initUnchangeableSystemProperty",
           "(Ljava/lang/String;Ljava/lang/String;)V");
       if (set_prop_id != nullptr) {
         // Init os.arch to the value reqired by the apps running with native bridge.
@@ -368,7 +368,7 @@ static void SetupEnvironment(NativeBridgeCallbacks* callbacks, JNIEnv* env, cons
             env->NewStringUTF(env_values->os_arch));
       } else {
         env->ExceptionClear();
-        ALOGW("Could not find System#setUnchangeableSystemProperty.");
+        ALOGW("Could not find initUnchangeableSystemProperty method.");
       }
     } else {
       env->ExceptionClear();

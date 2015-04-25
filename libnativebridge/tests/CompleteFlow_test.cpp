@@ -36,7 +36,6 @@ TEST_F(NativeBridgeTest, CompleteFlow) {
 
     // Unload
     UnloadNativeBridge();
-
     ASSERT_FALSE(NativeBridgeAvailable());
     ASSERT_FALSE(NativeBridgeError());
 

@@ -15,7 +15,6 @@
  */
 
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <sys/uio.h>
 #include <sys/socket.h>
@@ -42,7 +41,7 @@ int fatal();
 
 int open_raw_socket(const char *ifname __attribute__((unused)), uint8_t *hwaddr, int if_index)
 {
-    int s;
+    int s, flag;
     struct sockaddr_ll bindaddr;
 
     if((s = socket(PF_PACKET, SOCK_DGRAM, htons(ETH_P_IP))) < 0) {

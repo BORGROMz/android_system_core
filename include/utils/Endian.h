@@ -20,16 +20,21 @@
 #ifndef _LIBS_UTILS_ENDIAN_H
 #define _LIBS_UTILS_ENDIAN_H
 
-#if defined(__APPLE__) || defined(_WIN32)
-
-#define __BIG_ENDIAN 0x1000
-#define __LITTLE_ENDIAN 0x0001
-#define __BYTE_ORDER __LITTLE_ENDIAN
-
-#else
+#if defined(HAVE_ENDIAN_H)
 
 #include <endian.h>
 
+#else /*not HAVE_ENDIAN_H*/
+
+#define __BIG_ENDIAN 0x1000
+#define __LITTLE_ENDIAN 0x0001
+
+#if defined(HAVE_LITTLE_ENDIAN)
+# define __BYTE_ORDER __LITTLE_ENDIAN
+#else
+# define __BYTE_ORDER __BIG_ENDIAN
 #endif
+
+#endif /*not HAVE_ENDIAN_H*/
 
 #endif /*_LIBS_UTILS_ENDIAN_H*/

@@ -17,26 +17,20 @@
 #ifndef _LIBBACKTRACE_UNWIND_PTRACE_H
 #define _LIBBACKTRACE_UNWIND_PTRACE_H
 
-#include <stdint.h>
-#include <sys/types.h>
-
 #include <string>
 
-#ifdef UNW_LOCAL_ONLY
-#undef UNW_LOCAL_ONLY
-#endif
+#include "BacktraceImpl.h"
+
 #include <libunwind.h>
 
-#include "BacktracePtrace.h"
-
-class UnwindPtrace : public BacktracePtrace {
+class UnwindPtrace : public BacktraceImpl {
 public:
-  UnwindPtrace(pid_t pid, pid_t tid, BacktraceMap* map);
+  UnwindPtrace();
   virtual ~UnwindPtrace();
 
-  bool Unwind(size_t num_ignore_frames, ucontext_t* ucontext) override;
+  virtual bool Unwind(size_t num_ignore_frames, ucontext_t* ucontext);
 
-  std::string GetFunctionNameRaw(uintptr_t pc, uintptr_t* offset) override;
+  virtual std::string GetFunctionNameRaw(uintptr_t pc, uintptr_t* offset);
 
 private:
   unw_addr_space_t addr_space_;

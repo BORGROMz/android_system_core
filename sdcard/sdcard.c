@@ -29,7 +29,6 @@
 #include <string.h>
 #include <sys/inotify.h>
 #include <sys/mount.h>
-#include <sys/param.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
@@ -199,8 +198,6 @@ struct node {
      * position. Used to support things like OBB. */
     char* graft_path;
     size_t graft_pathlen;
-
-    bool deleted;
 };
 
 static int str_hash(void *key) {
@@ -417,12 +414,12 @@ static void attr_from_stat(struct fuse_attr *attr, const struct stat *s, const s
     attr->ino = node->ino;
     attr->size = s->st_size;
     attr->blocks = s->st_blocks;
-    attr->atime = s->st_atim.tv_sec;
-    attr->mtime = s->st_mtim.tv_sec;
-    attr->ctime = s->st_ctim.tv_sec;
-    attr->atimensec = s->st_atim.tv_nsec;
-    attr->mtimensec = s->st_mtim.tv_nsec;
-    attr->ctimensec = s->st_ctim.tv_nsec;
+    attr->atime = s->st_atime;
+    attr->mtime = s->st_mtime;
+    attr->ctime = s->st_ctime;
+    attr->atimensec = s->st_atime_nsec;
+    attr->mtimensec = s->st_mtime_nsec;
+    attr->ctimensec = s->st_ctime_nsec;
     attr->mode = s->st_mode;
     attr->nlink = s->st_nlink;
 
@@ -633,8 +630,6 @@ struct node *create_node_locked(struct fuse* fuse,
     node->ino = fuse->inode_ctr++;
     node->gen = fuse->next_generation++;
 
-    node->deleted = false;
-
     derive_permissions_locked(fuse, parent, node);
     acquire_node_locked(node);
     add_node_to_parent_locked(node, parent);
@@ -708,7 +703,7 @@ static struct node *lookup_child_by_name_locked(struct node *node, const char *n
          * must be considered distinct even if they refer to the same
          * underlying file as otherwise operations such as "mv x x"
          * will not work because the source and target nodes are the same. */
-        if (!strcmp(name, node->name) && !node->deleted) {
+        if (!strcmp(name, node->name)) {
             return node;
         }
     }
@@ -941,9 +936,7 @@ static int handle_setattr(struct fuse* fuse, struct fuse_handler* handler,
     if (!node) {
         return -ENOENT;
     }
-
-    if (!(req->valid & FATTR_FH) &&
-            !check_caller_access_to_node(fuse, hdr, node, W_OK, has_rw)) {
+    if (!check_caller_access_to_node(fuse, hdr, node, W_OK, has_rw)) {
         return -EACCES;
     }
 
@@ -1074,7 +1067,6 @@ static int handle_unlink(struct fuse* fuse, struct fuse_handler* handler,
 {
     bool has_rw;
     struct node* parent_node;
-    struct node* child_node;
     char parent_path[PATH_MAX];
     char child_path[PATH_MAX];
 
@@ -1096,12 +1088,6 @@ static int handle_unlink(struct fuse* fuse, struct fuse_handler* handler,
     if (unlink(child_path) < 0) {
         return -errno;
     }
-    pthread_mutex_lock(&fuse->lock);
-    child_node = lookup_child_by_name_locked(parent_node, name);
-    if (child_node) {
-        child_node->deleted = true;
-    }
-    pthread_mutex_unlock(&fuse->lock);
     return 0;
 }
 
@@ -1109,7 +1095,6 @@ static int handle_rmdir(struct fuse* fuse, struct fuse_handler* handler,
         const struct fuse_in_header* hdr, const char* name)
 {
     bool has_rw;
-    struct node* child_node;
     struct node* parent_node;
     char parent_path[PATH_MAX];
     char child_path[PATH_MAX];
@@ -1132,12 +1117,6 @@ static int handle_rmdir(struct fuse* fuse, struct fuse_handler* handler,
     if (rmdir(child_path) < 0) {
         return -errno;
     }
-    pthread_mutex_lock(&fuse->lock);
-    child_node = lookup_child_by_name_locked(parent_node, name);
-    if (child_node) {
-        child_node->deleted = true;
-    }
-    pthread_mutex_unlock(&fuse->lock);
     return 0;
 }
 
@@ -1322,7 +1301,6 @@ static int handle_write(struct fuse* fuse, struct fuse_handler* handler,
         return -errno;
     }
     out.size = res;
-    out.padding = 0;
     fuse_reply(fuse, hdr->unique, &out, sizeof(out));
     return NO_STATUS;
 }
@@ -1482,42 +1460,17 @@ static int handle_init(struct fuse* fuse, struct fuse_handler* handler,
         const struct fuse_in_header* hdr, const struct fuse_init_in* req)
 {
     struct fuse_init_out out;
-    size_t fuse_struct_size;
 
     TRACE("[%d] INIT ver=%d.%d maxread=%d flags=%x\n",
             handler->token, req->major, req->minor, req->max_readahead, req->flags);
-
-    /* Kernel 2.6.16 is the first stable kernel with struct fuse_init_out
-     * defined (fuse version 7.6). The structure is the same from 7.6 through
-     * 7.22. Beginning with 7.23, the structure increased in size and added
-     * new parameters.
-     */
-    if (req->major != FUSE_KERNEL_VERSION || req->minor < 6) {
-        ERROR("Fuse kernel version mismatch: Kernel version %d.%d, Expected at least %d.6",
-              req->major, req->minor, FUSE_KERNEL_VERSION);
-        return -1;
-    }
-
-    out.minor = MIN(req->minor, FUSE_KERNEL_MINOR_VERSION);
-    fuse_struct_size = sizeof(out);
-#if defined(FUSE_COMPAT_22_INIT_OUT_SIZE)
-    /* FUSE_KERNEL_VERSION >= 23. */
-
-    /* If the kernel only works on minor revs older than or equal to 22,
-     * then use the older structure size since this code only uses the 7.22
-     * version of the structure. */
-    if (req->minor <= 22) {
-        fuse_struct_size = FUSE_COMPAT_22_INIT_OUT_SIZE;
-    }
-#endif
-
     out.major = FUSE_KERNEL_VERSION;
+    out.minor = FUSE_KERNEL_MINOR_VERSION;
     out.max_readahead = req->max_readahead;
     out.flags = FUSE_ATOMIC_O_TRUNC | FUSE_BIG_WRITES;
     out.max_background = 32;
     out.congestion_threshold = 32;
     out.max_write = MAX_WRITE;
-    fuse_reply(fuse, hdr->unique, &out, fuse_struct_size);
+    fuse_reply(fuse, hdr->unique, &out, sizeof(out));
     return NO_STATUS;
 }
 
@@ -1875,7 +1828,7 @@ static int run(const char* source_path, const char* dest_path, uid_t uid,
     struct fuse fuse;
 
     /* cleanup from previous instance, if necessary */
-    umount2(dest_path, MNT_DETACH);
+    umount2(dest_path, 2);
 
     fd = open("/dev/fuse", O_RDWR);
     if (fd < 0){
@@ -1887,8 +1840,7 @@ static int run(const char* source_path, const char* dest_path, uid_t uid,
             "fd=%i,rootmode=40000,default_permissions,allow_other,user_id=%d,group_id=%d",
             fd, uid, gid);
 
-    res = mount("/dev/fuse", dest_path, "fuse", MS_NOSUID | MS_NODEV | MS_NOEXEC |
-            MS_NOATIME, opts);
+    res = mount("/dev/fuse", dest_path, "fuse", MS_NOSUID | MS_NODEV | MS_NOEXEC, opts);
     if (res < 0) {
         ERROR("cannot mount fuse filesystem: %s\n", strerror(errno));
         goto error;

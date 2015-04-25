@@ -21,7 +21,7 @@
 #include <sys/types.h>
 #include <time.h>
 
-#if !defined(_WIN32)
+#if defined(HAVE_PTHREADS)
 # include <pthread.h>
 #endif
 
@@ -71,8 +71,8 @@ public:
             bool        isRunning() const;
 
 #ifdef HAVE_ANDROID_OS
-    // Return the thread's kernel ID, same as the thread itself calling gettid(),
-    // or -1 if the thread is not running.
+    // Return the thread's kernel ID, same as the thread itself calling gettid() or
+    // androidGetTid(), or -1 if the thread is not running.
             pid_t       getTid() const;
 #endif
 
